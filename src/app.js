@@ -9,8 +9,8 @@ import { sourcesView, sourceModalView } from './views/sources.js';
 import { competitorsView, competitorModalView } from './views/competitors.js';
 import { reportView } from './views/reports.js';
 
-export function createApp(root) {
-  const loaded = loadWorkspace();
+export function createApp(root, options = {}) {
+  const loaded = loadWorkspace({keepDemo:options.keepDemo === true});
   let workspace = loaded.workspace;
   let locale = 'zh-CN';
   try { locale = JSON.parse(localStorage.getItem('op-language')) === 'en' ? 'en' : 'zh-CN'; } catch { /* Use the default language. */ }
@@ -19,8 +19,11 @@ export function createApp(root) {
     draft:null, editingId:'', dirty:false, pending:null, formError:'', modal:null,
     sourceMode:'all', reportFilter:{...emptyFilter}, reportLanguage:locale, reportSnapshot:null,
     employeeName:'', exporting:false, storageError:false, toast:'',
+    live:{loading:false,error:'',lastSynced:'',count:0,warnings:[]},
   };
   let toastTimer;
+  let deferredRenderTimer;
+  let pendingRender = false;
   let destroyed = false;
   let modalTrigger = null;
   const originalOverflow = document.body.style.overflow;
@@ -54,6 +57,11 @@ export function createApp(root) {
 
   function render() {
     if (destroyed) return;
+    if (document.activeElement?.name === 'search') {
+      pendingRender = true;
+      return;
+    }
+    pendingRender = false;
     const active = document.activeElement;
     const focus = controlKey(active);
     const cursor = typeof active?.selectionStart === 'number' ? [active.selectionStart,active.selectionEnd] : null;
@@ -95,6 +103,16 @@ export function createApp(root) {
   function renderToast() {
     const t = translator(state.locale);
     region('toast').innerHTML = state.toast ? `<div class="toast" role="status">${e(t(state.toast))}<button type="button" data-action="dismiss-toast" aria-label="${e(t('close'))}">×</button></div>` : '';
+  }
+  function renderSearchResults() {
+    const current = root.querySelector('.opportunity-card');
+    if (!current) { render(); return; }
+    const template = document.createElement('template');
+    template.innerHTML = tableView(context()).trim();
+    const next = template.content.firstElementChild;
+    if (next) current.replaceWith(next);
+    const clear = root.querySelector('[data-action="clear-search"]');
+    if (clear) clear.hidden = !state.query;
   }
   function notify(key) {
     state.toast = key;
@@ -160,6 +178,42 @@ export function createApp(root) {
     return {id:crypto.randomUUID(),date,authorId:workspace.currentUserId,text,kind};
   }
 
+  function toLiveOpportunity(item, fetchedAt) {
+    const createdAt = item.publishedDate ? `${item.publishedDate}T00:00:00.000Z` : fetchedAt;
+    return {
+      ...blankOpportunity(), id:item.id, isLive:true, name:item.title, nameZh:item.title, nameEn:item.title,
+      province:item.province, buyer:item.buyer, noticeTitle:item.title, sourceId:'ccgp', sourceUrl:item.sourceUrl,
+      publishedDate:item.publishedDate, rebar:{...blankOpportunity().rebar,type:item.rebarType},
+      priority:'medium', ownerId:workspace.currentUserId, status:'new', createdAt, updatedAt:fetchedAt, lastSeenAt:fetchedAt,
+      technicalNotes:item.agency ? `Procurement agency: ${item.agency}` : '',
+      activities:[{id:`${item.id}-discovered`,date:fetchedAt,authorId:workspace.currentUserId,text:'',kind:'created'}],
+    };
+  }
+
+  async function syncLive() {
+    if(state.live.loading)return;
+    state.live={...state.live,loading:true,error:''};render();
+    try {
+      const response=await fetch('/api/live-opportunities',{headers:{accept:'application/json'}});
+      const payload=await response.json();
+      if(!response.ok)throw new Error(payload.error||'Live source unavailable');
+      const existing=new Map(workspace.opportunities.filter(p=>p.isLive).map(p=>[p.sourceUrl,p]));
+      const incoming=payload.items.map(item=>{
+        const fresh=toLiveOpportunity(item,payload.fetchedAt);
+        const prior=existing.get(item.sourceUrl);
+        return prior?{...prior,name:fresh.name,nameZh:fresh.nameZh,nameEn:fresh.nameEn,buyer:fresh.buyer,province:fresh.province||prior.province,publishedDate:fresh.publishedDate||prior.publishedDate,rebar:{...prior.rebar,type:fresh.rebar.type},updatedAt:payload.fetchedAt,lastSeenAt:payload.fetchedAt}:fresh;
+      });
+      const incomingUrls=new Set(incoming.map(item=>item.sourceUrl));
+      const retained=workspace.opportunities.filter(item=>!item.isDemo&&!incomingUrls.has(item.sourceUrl));
+      if(!persist({...workspace,opportunities:[...incoming,...retained]}))throw new Error('storage');
+      state.live={loading:false,error:'',lastSynced:payload.fetchedAt,count:payload.items.length,warnings:payload.warnings||[]};
+      notify(payload.items.length?'liveSyncComplete':'liveSyncEmpty');
+    } catch(error) {
+      state.live={...state.live,loading:false,error:error.message||'unavailable'};
+    }
+    render();
+  }
+
   async function onClick(event) {
     const control=event.target.closest('[data-action]');
     if (!control || !root.contains(control) || control.disabled) return;
@@ -175,6 +229,7 @@ export function createApp(root) {
     if (action==='mobile') state.mobile=!state.mobile;
     if (action==='notifications') state.notification=!state.notification;
     if (action==='dismiss-toast') {state.toast='';renderToast();return;}
+    if (action==='sync-live') {syncLive();return;}
     if (action==='clear-search') {state.query='';state.tablePage=0;}
     if (action==='reset-filter') {
       if(value==='report'){state.reportFilter={...emptyFilter};state.reportSnapshot=null;}
@@ -240,7 +295,7 @@ export function createApp(root) {
       if(event.type==='change'&&workspace.users.some(u=>u.id===control.value)){persist({...workspace,currentUserId:control.value});render();}
       return;
     }
-    if(name==='search'){state.query=control.value;state.tablePage=0;render();return;}
+    if(name==='search'){state.query=control.value;state.tablePage=0;renderSearchResults();return;}
     if(name.startsWith('filter.')||name.startsWith('reportFilter.')) {
       const [group,key]=name.split('.');
       if(Object.hasOwn(state[group],key)){state[group][key]=control.value;state.tablePage=0;if(group==='reportFilter')state.reportSnapshot=null;render();}
@@ -256,6 +311,14 @@ export function createApp(root) {
     if(form==='source-edit'||form==='competitor')updateDraft(state.modal.draft,name,control);
     if(['source-check','activity','document'].includes(form)&&Object.hasOwn(state.modal,name))state.modal[name]=control.value;
     if(form==='employee')state.employeeName=control.value;
+  }
+
+  function onFocusOut(event) {
+    if (event.target.name !== 'search' || !pendingRender) return;
+    clearTimeout(deferredRenderTimer);
+    deferredRenderTimer = setTimeout(() => {
+      if (!destroyed && pendingRender && document.activeElement?.name !== 'search') render();
+    }, 0);
   }
 
   function onSubmit(event) {
@@ -330,14 +393,16 @@ export function createApp(root) {
   root.addEventListener('click',onClick);
   root.addEventListener('input',onInput);
   root.addEventListener('change',onInput);
+  root.addEventListener('focusout',onFocusOut);
   root.addEventListener('submit',onSubmit);
   document.addEventListener('keydown',onKeyDown);
   window.addEventListener('beforeunload',beforeUnload);
   render();
   return {
+    syncLive,
     destroy() {
-      destroyed=true;clearTimeout(toastTimer);
-      root.removeEventListener('click',onClick);root.removeEventListener('input',onInput);root.removeEventListener('change',onInput);root.removeEventListener('submit',onSubmit);
+      destroyed=true;clearTimeout(toastTimer);clearTimeout(deferredRenderTimer);
+      root.removeEventListener('click',onClick);root.removeEventListener('input',onInput);root.removeEventListener('change',onInput);root.removeEventListener('focusout',onFocusOut);root.removeEventListener('submit',onSubmit);
       document.removeEventListener('keydown',onKeyDown);window.removeEventListener('beforeunload',beforeUnload);
       document.body.style.overflow=originalOverflow;root.innerHTML='';
     },

@@ -4,30 +4,39 @@ import { screen, fireEvent, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { createApp } from './app.js';
 const mounted = [];
-function renderApp() {
+function renderApp({ demo = true } = {}) {
+  if (demo && !localStorage.getItem('oceanpower-manual-rebar-v2')) localStorage.setItem('oceanpower-manual-rebar-v2', JSON.stringify(createDemoWorkspace()));
   const root = document.createElement('div');
   document.body.append(root);
-  mounted.push({ root, app: createApp(root) });
+  mounted.push({ root, app: createApp(root, {keepDemo:demo}) });
+  return mounted.at(-1).app;
 }
 function cleanup() {
   mounted.splice(0).forEach(({ root, app }) => { app.destroy(); root.remove(); });
 }
 import en from '../locales/en.json';
 import zh from '../locales/zh-CN.json';
-import { createWorkspace, initialSources, productCatalog } from './data';
+import { createWorkspace, createDemoWorkspace, initialSources, productCatalog } from './data';
 import { emptyFilter, filterOpportunities, isDueSoon, STORAGE_KEY } from './lib/workspace';
 import { reportSections } from './lib/reports';
 beforeEach(() => { localStorage.clear(); localStorage.setItem('op-language', JSON.stringify('en')); });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const nav = (name) => fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: new RegExp(`^${name}`) }));
 const input = (name, value) => fireEvent.change(screen.getByLabelText(name), { target: { value } });
 const getStore = () => JSON.parse(localStorage.getItem(STORAGE_KEY));
 describe('manual China rebar workflows', () => {
-    it('keeps search focus and cursor position while typing across HTML updates', async () => {
-        renderApp();
+    it('keeps the search input mounted while typing multiple characters', async () => {
+        let release;
+        vi.stubGlobal('fetch', vi.fn(() => new Promise(resolve => { release = resolve; })));
+        const app = renderApp();
+        const syncing = app.syncLive();
         const user = userEvent.setup();
-        await user.type(screen.getByLabelText(en.search), 'GFRP');
         const search = screen.getByLabelText(en.search);
+        await user.type(search, 'G');
+        release({ok:true,json:async()=>({fetchedAt:'2026-09-30T06:00:00.000Z',warnings:[],items:[{id:'CCGP-TYPING',title:'Guangdong metro GFRP rebar procurement',buyer:'Guangzhou railway unit',agency:'',province:'guangdong',rebarType:'GFRP',publishedDate:'2026-09-28',sourceUrl:'https://www.ccgp.gov.cn/typing-test.htm'}]})});
+        await syncing;
+        await user.type(search, 'FRP');
+        expect(screen.getByLabelText(en.search)).toBe(search);
         expect(search.value).toBe('GFRP');
         expect(document.activeElement).toBe(search);
         expect(search.selectionStart).toBe(4);
@@ -63,14 +72,31 @@ describe('manual China rebar workflows', () => {
         expect(screen.queryByRole('dialog')).toBeNull();
         expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Guangdong metro/ }));
     });
-    it('has complete translations, nine configured platform identities and rebar-only seeds', () => {
+    it('has complete translations, ten configured platform identities and no production demo rows', () => {
         expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort());
         expect(en.greeting).toBe('China market overview');
-        expect(initialSources).toHaveLength(9);
+        expect(initialSources).toHaveLength(10);
         expect(initialSources.some(s => ['电子采购门户', '材料之家', '供应链数字化管理平台'].includes(s.name))).toBe(false);
         expect(initialSources.every(s => !s.lastChecked && !s.checkedBy && s.opportunitiesFound === null && s.priority === '')).toBe(true);
         expect(productCatalog).toEqual(['GFRP Rebar', 'BFRP Rebar', 'CFRP Rebar']);
-        expect(createWorkspace().opportunities.every(p => p.market === 'CN' && p.nameEn.includes('rebar') && p.isDemo && p.potentialProducts.length === 0)).toBe(true);
+        expect(createWorkspace().opportunities).toEqual([]);
+        expect(createDemoWorkspace().opportunities.every(p => p.market === 'CN' && p.nameEn.includes('rebar') && p.isDemo && p.potentialProducts.length === 0)).toBe(true);
+    });
+    it('syncs official records, removes demo rows and retains source provenance', async () => {
+        vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+            fetchedAt:'2026-09-30T06:00:00.000Z',warnings:[],items:[{id:'CCGP-ABC',title:'广东玻璃纤维筋采购公告',buyer:'广州市某单位',agency:'某代理公司',province:'guangdong',rebarType:'GFRP',publishedDate:'2026-09-28',sourceUrl:'https://www.ccgp.gov.cn/example.htm'}],
+        })}));
+        const app=renderApp();
+        await app.syncLive();
+        const stored=getStore();
+        expect(stored.opportunities).toHaveLength(1);
+        expect(stored.opportunities[0]).toMatchObject({id:'CCGP-ABC',isLive:true,isDemo:false,sourceId:'ccgp',sourceUrl:'https://www.ccgp.gov.cn/example.htm'});
+        expect(screen.getByRole('button',{name:/^广东玻璃纤维筋/})).toBeTruthy();
+        const sourceLink=screen.getByRole('link',{name:/China Government Procurement Network/});
+        expect(sourceLink.href).toBe('https://www.ccgp.gov.cn/example.htm');
+        expect(sourceLink.target).toBe('_blank');
+        expect(sourceLink.rel).toContain('noopener');
+        expect(document.body.textContent).toContain(en.liveRecord);
     });
     it('switches languages, searches mixed keywords and filters stored records', () => {
         renderApp();
@@ -119,7 +145,7 @@ describe('manual China rebar workflows', () => {
         expect(screen.getByRole('button', { name: /^Manual test rebar tender/ })).toBeTruthy();
     });
     it('validates date order and protects unsaved edits when navigating', () => {
-        renderApp();
+        renderApp({demo:false});
         nav(en.add);
         input(en.project, 'Date test');
         input(en.province, 'guangdong');
@@ -158,7 +184,7 @@ describe('manual China rebar workflows', () => {
     it('records source checks with employee, timestamp and optional count without creating a tender', () => {
         renderApp();
         nav(en.sources);
-        expect(screen.getAllByRole('button', { name: en.markChecked })).toHaveLength(9);
+        expect(screen.getAllByRole('button', { name: en.markChecked })).toHaveLength(10);
         fireEvent.click(screen.getAllByRole('button', { name: en.markChecked })[0]);
         input(en.checkedBy, 'employeeB');
         input(en.found, '3');
@@ -199,7 +225,7 @@ describe('manual China rebar workflows', () => {
         expect(print).toHaveBeenCalledOnce();
     });
     it('handles all filters and deadline boundaries without inferring outcomes', () => {
-        const w = createWorkspace();
+        const w = createDemoWorkspace();
         const p = w.opportunities[0];
         expect(filterOpportunities(w.opportunities, { ...emptyFilter, province: p.province, rebarType: p.rebar.type, status: p.status, ownerId: p.ownerId, sourceId: p.sourceId, priority: p.priority, from: '2026-09-22', to: '2026-09-22' })).toHaveLength(1);
         expect(isDueSoon({ ...p, deadline: '2026-10-07' }, new Date('2026-09-30T12:00:00'))).toBe(true);

@@ -5,6 +5,7 @@ export const provinces = ['beijing', 'tianjin', 'hebei', 'shanxi', 'innerMongoli
 export const emptyRebar = { type: 'unknown', productName: '', diameter: '', quantity: '', unit: '', length: '', tensileStrength: '', shearStrength: '', elasticityModulus: '', resinType: '', surfaceType: '', technicalStandard: '', environment: '', otherRequirements: '' };
 // Identified platforms only. No check history, business priorities or English legal names are invented.
 const sourceDefinitions = [
+    ['ccgp', '中国政府采购网', 'sourceCcgp', 'governmentProcurement', 'https://www.ccgp.gov.cn/'],
     ['s2', '中交招采网', 'source2', 'constructionProcurement', 'https://sp.iccec.cn/'],
     ['s3', '中国电建阳光采购网', 'source3', 'powerInfrastructure', 'https://bid.powerchina.cn/'],
     ['s4', '云筑网', 'source4', 'constructionProcurement', 'https://www.yzw.cn/'],
@@ -38,6 +39,10 @@ const samples = [
     ['四川建筑工程玻璃纤维筋采购', 'Sichuan construction GFRP rebar procurement', 'sichuan', '@cityChengdu', 'GFRP', 's11', 'new', '18 mm', '3600', 'm']
 ];
 export function createWorkspace() {
+    return { version: 2, opportunities: [], sources: structuredClone(initialSources), competitors: structuredClone(initialCompetitors), users: [{ id: 'employeeA', name: '@employeeA' }, { id: 'employeeB', name: '@employeeB' }], savedIds: [], currentUserId: 'employeeA' };
+}
+// Retained only for deterministic tests and explicit development fixtures.
+export function createDemoWorkspace() {
     const opportunities = samples.map((row, i) => ({ ...blankOpportunity(), id: `CN-REBAR-${String(i + 1).padStart(3, '0')}`, isDemo: true, name: row[0], nameZh: row[0], nameEn: row[1], province: row[2], city: row[3], buyer: `@demoBuyer${i + 1}`, projectType: '@procurement', application: i === 0 || i === 2 ? '@tunnel' : '@civilEngineering', noticeTitle: row[0], sourceId: row[5], status: row[6], rebar: { ...emptyRebar, type: row[4], diameter: row[7], quantity: row[8], unit: row[9] }, priority: i % 3 === 0 ? 'high' : 'medium', ownerId: i % 2 === 0 ? 'employeeA' : 'employeeB', publishedDate: `2026-09-${String(22 + i).padStart(2, '0')}`, deadline: `2026-10-${String(2 + i * 3).padStart(2, '0')}`, businessNotes: '@demoBusinessNote', missingInformation: '@demoMissing', createdAt: `2026-09-${String(22 + i).padStart(2, '0')}T01:00:00.000Z`, updatedAt: `2026-09-${String(22 + i).padStart(2, '0')}T01:00:00.000Z`, activities: [{ id: `seed-${i}`, date: `2026-09-${String(22 + i).padStart(2, '0')}T01:00:00.000Z`, authorId: i % 2 === 0 ? 'employeeA' : 'employeeB', text: '', kind: 'created' }] }));
     return { version: 2, opportunities, sources: structuredClone(initialSources), competitors: structuredClone(initialCompetitors), users: [{ id: 'employeeA', name: '@employeeA' }, { id: 'employeeB', name: '@employeeB' }], savedIds: [], currentUserId: 'employeeA' };
 }

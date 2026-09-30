@@ -1,2 +1,3 @@
 import { defineConfig } from 'vite';
-export default defineConfig({});
+import { liveDataPlugin } from './server/api.js';
+export default defineConfig({ plugins:[liveDataPlugin()] });

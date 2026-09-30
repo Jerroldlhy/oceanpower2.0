@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
-import { createWorkspace } from '../data';
+import { createDemoWorkspace } from '../data';
 import { createReportWorkbook, reportSections } from './reports';
 import { emptyFilter, filterOpportunities } from './workspace';
 describe('manual report export', () => {
     it('exports only filtered records and preserves Chinese text and real summary totals', async () => {
-        const workspace = createWorkspace();
+        const workspace = createDemoWorkspace();
         const records = filterOpportunities(workspace.opportunities, { ...emptyFilter, province: 'guangdong' });
         const now = new Date('2026-09-30T01:00:00Z');
         const bytes = await createReportWorkbook(records, workspace, ['zh-CN', 'en'], now);

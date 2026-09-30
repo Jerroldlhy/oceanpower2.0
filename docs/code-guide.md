@@ -20,6 +20,9 @@ You only need HTML, CSS and JavaScript to work on the interface. React and JSX h
 | `src/lib/workspace.js` | Search, filters, translations, dates and local browser storage. |
 | `src/lib/reports.js` | Report calculations and Excel export. |
 | `src/models.js` | Comments describing the data structures, plus status/category lists. |
+| `server/ccgp.js` | Low-frequency, cached collector for China Government Procurement Network public search results. |
+| `server/api.js` | `/api/live-opportunities` response and Vite development middleware. |
+| `server/index.js` | Production static server and live-data API. |
 | `locales/en.json`, `locales/zh-CN.json` | English and Chinese interface text. |
 
 ## How HTML is made
@@ -47,7 +50,7 @@ One click listener in `src/app.js` reads these values and opens the right page. 
 
 ## What stays saved?
 
-Records use the same localStorage key as the previous version: `oceanpower-manual-rebar-v2`. Existing records, source checks, employees and bookmarks remain compatible. Use the same browser and local server address to access them. The Settings page can download a backup.
+Records use the same localStorage key as the previous version: `oceanpower-manual-rebar-v2`. Existing manual records, source checks, employees and bookmarks remain compatible; legacy demo rows are excluded. Official discoveries are deduplicated by source URL before they are stored. Use the same browser and local server address to access them. The Settings page can download a backup.
 
 ## Commands
 

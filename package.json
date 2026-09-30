@@ -7,10 +7,13 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "serve": "node server/index.js",
     "test": "vitest run",
     "start": "vite --host 0.0.0.0"
   },
   "dependencies": {
+    "@fontsource-variable/manrope": "^5.2.8",
+    "cheerio": "^1.1.2",
     "exceljs": "^4.4.0"
   },
   "devDependencies": {

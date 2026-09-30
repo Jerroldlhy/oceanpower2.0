@@ -1,4 +1,4 @@
-import { createWorkspace, materialAliases } from '../data';
+import { createWorkspace, initialSources, materialAliases } from '../data';
 import en from '../../locales/en.json';
 import zh from '../../locales/zh-CN.json';
 export const STORAGE_KEY = 'oceanpower-manual-rebar-v2';
@@ -23,14 +23,17 @@ export function safeUrl(value) { try {
 catch {
     return '';
 } }
-export function loadWorkspace() { try {
+export function loadWorkspace({ keepDemo = false } = {}) { try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw)
         return { workspace: createWorkspace(), issue: false };
     const parsed = JSON.parse(raw);
     if (parsed.version !== 2 || !Array.isArray(parsed.opportunities) || !Array.isArray(parsed.sources) || !Array.isArray(parsed.users) || !Array.isArray(parsed.competitors) || !Array.isArray(parsed.savedIds))
         throw new Error();
-    return { workspace: parsed, issue: false };
+    const knownSources = new Set(parsed.sources.map(source => source.id));
+    const sources = [...parsed.sources, ...structuredClone(initialSources.filter(source => !knownSources.has(source.id)))];
+    const opportunities = keepDemo ? parsed.opportunities : parsed.opportunities.filter(item => !item.isDemo);
+    return { workspace: { ...parsed, sources, opportunities }, issue: false };
 }
 catch {
     return { workspace: createWorkspace(), issue: true };
