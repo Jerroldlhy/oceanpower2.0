@@ -1,0 +1,234 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { screen, fireEvent, within } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
+import { createApp } from './app.js';
+const mounted = [];
+function renderApp() {
+  const root = document.createElement('div');
+  document.body.append(root);
+  mounted.push({ root, app: createApp(root) });
+}
+function cleanup() {
+  mounted.splice(0).forEach(({ root, app }) => { app.destroy(); root.remove(); });
+}
+import en from '../locales/en.json';
+import zh from '../locales/zh-CN.json';
+import { createWorkspace, initialSources, productCatalog } from './data';
+import { emptyFilter, filterOpportunities, isDueSoon, STORAGE_KEY } from './lib/workspace';
+import { reportSections } from './lib/reports';
+beforeEach(() => { localStorage.clear(); localStorage.setItem('op-language', JSON.stringify('en')); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+const nav = (name) => fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: new RegExp(`^${name}`) }));
+const input = (name, value) => fireEvent.change(screen.getByLabelText(name), { target: { value } });
+const getStore = () => JSON.parse(localStorage.getItem(STORAGE_KEY));
+describe('manual China rebar workflows', () => {
+    it('keeps search focus and cursor position while typing across HTML updates', async () => {
+        renderApp();
+        const user = userEvent.setup();
+        await user.type(screen.getByLabelText(en.search), 'GFRP');
+        const search = screen.getByLabelText(en.search);
+        expect(search.value).toBe('GFRP');
+        expect(document.activeElement).toBe(search);
+        expect(search.selectionStart).toBe(4);
+        expect(screen.getByRole('button', { name: /^Guangdong metro/ })).toBeTruthy();
+    });
+    it('renders user-entered HTML as literal text and rejects unsafe document links', () => {
+        renderApp();
+        nav(en.add);
+        const title = '<img src=x onerror=alert(1)> rebar tender';
+        input(en.project, title);
+        input(en.province, 'guangdong');
+        fireEvent.click(screen.getByRole('button', { name: en.saveOpportunity }));
+        expect(screen.getByRole('dialog', { name: title })).toBeTruthy();
+        expect(document.querySelector('img')).toBeNull();
+        fireEvent.click(screen.getByRole('tab', { name: en.documents }));
+        input(en.documentName, 'Unsafe link');
+        input(en.documentUrl, 'javascript:alert(1)');
+        fireEvent.submit(document.querySelector('[data-form="document"]'));
+        expect(screen.getByRole('alert').textContent).toBe(en.invalidUrl);
+        expect(getStore().opportunities[0].documents).toHaveLength(0);
+    });
+    it('traps keyboard focus in a drawer and restores it to the opener', () => {
+        renderApp();
+        const opener = screen.getByRole('button', { name: /^Guangdong metro/ });
+        opener.focus();
+        fireEvent.click(opener);
+        const dialog = screen.getByRole('dialog');
+        const close = within(dialog).getByRole('button', { name: en.close });
+        expect(document.activeElement).toBe(close);
+        fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+        expect(document.activeElement.name).toBe('detail-products');
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Guangdong metro/ }));
+    });
+    it('has complete translations, nine configured platform identities and rebar-only seeds', () => {
+        expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort());
+        expect(en.greeting).toBe('China market overview');
+        expect(initialSources).toHaveLength(9);
+        expect(initialSources.some(s => ['电子采购门户', '材料之家', '供应链数字化管理平台'].includes(s.name))).toBe(false);
+        expect(initialSources.every(s => !s.lastChecked && !s.checkedBy && s.opportunitiesFound === null && s.priority === '')).toBe(true);
+        expect(productCatalog).toEqual(['GFRP Rebar', 'BFRP Rebar', 'CFRP Rebar']);
+        expect(createWorkspace().opportunities.every(p => p.market === 'CN' && p.nameEn.includes('rebar') && p.isDemo && p.potentialProducts.length === 0)).toBe(true);
+    });
+    it('switches languages, searches mixed keywords and filters stored records', () => {
+        renderApp();
+        expect(screen.getByRole('heading', { name: en.greeting })).toBeTruthy();
+        input(en.search, 'GFRP 广东');
+        expect(screen.getByRole('button', { name: /^Guangdong metro/ })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /^Shanghai tunnel/ })).toBeNull();
+        input(en.search, '玻璃纤维筋');
+        expect(screen.getByRole('button', { name: /^Shanghai tunnel/ })).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: '中文' }));
+        expect(screen.getByRole('heading', { name: zh.greeting })).toBeTruthy();
+        input(zh.province, 'shanghai');
+        expect(screen.getByRole('button', { name: /^上海隧道/ })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /^广东某地铁/ })).toBeNull();
+        expect(document.body.textContent).not.toMatch(/AI|自动推荐|相关程度/);
+    });
+    it('creates, persists, edits and saves a manually entered rebar opportunity', async () => {
+        renderApp();
+        nav(en.add);
+        input(en.project, 'Manual test rebar tender');
+        input(en.nameEn, 'Manual test rebar tender');
+        input(en.province, 'guangdong');
+        input(en.buyer, 'Test buyer');
+        input(en.rebarType, 'GFRP');
+        input(en.diameter, '16 mm');
+        input(en.quantity, '5000');
+        input(en.unit, 'm');
+        const user = userEvent.setup();
+        await user.type(screen.getByLabelText(en.businessNotes), 'Contact buyer');
+        expect(screen.getByLabelText(en.businessNotes).value).toBe('Contact buyer');
+        fireEvent.click(screen.getByLabelText('GFRP Rebar'));
+        fireEvent.click(screen.getByRole('button', { name: en.saveOpportunity }));
+        expect(getStore().opportunities[0]).toMatchObject({ name: 'Manual test rebar tender', isDemo: false, rebar: { type: 'GFRP', quantity: '5000' }, potentialProducts: ['GFRP Rebar'] });
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.edit }));
+        input(en.status, 'quotationSubmitted');
+        input(en.quantity, '6500');
+        fireEvent.click(screen.getByRole('button', { name: en.saveChanges }));
+        expect(getStore().opportunities[0].status).toBe('quotationSubmitted');
+        expect(getStore().opportunities[0].rebar.quantity).toBe('6500');
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.close }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save project Manual test rebar tender' }));
+        expect(getStore().savedIds).toHaveLength(1);
+        cleanup();
+        renderApp();
+        nav(en.saved);
+        expect(screen.getByRole('button', { name: /^Manual test rebar tender/ })).toBeTruthy();
+    });
+    it('validates date order and protects unsaved edits when navigating', () => {
+        renderApp();
+        nav(en.add);
+        input(en.project, 'Date test');
+        input(en.province, 'guangdong');
+        input(en.publishedDate, '2026-10-20');
+        input(en.deadline, '2026-10-01');
+        fireEvent.click(screen.getByRole('button', { name: en.saveOpportunity }));
+        expect(screen.getByRole('alert').textContent).toBe(en.formError);
+        expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+        nav(en.sources);
+        expect(screen.getByRole('dialog', { name: en.unsaved })).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: en.keepEditing }));
+        expect(screen.getByLabelText(en.project)).toBeTruthy();
+        nav(en.sources);
+        fireEvent.click(screen.getByRole('button', { name: en.discard }));
+        expect(screen.getByRole('heading', { name: en.sourcesTitle })).toBeTruthy();
+    });
+    it('adds activity and document references and leaves missing requirements blank', () => {
+        renderApp();
+        fireEvent.click(screen.getByRole('button', { name: /^Guangdong metro/ }));
+        const dialog = screen.getByRole('dialog');
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('tab', { name: en.rebarRequirements }));
+        expect(within(screen.getByRole('dialog')).getAllByText(en.notProvided).length).toBeGreaterThan(2);
+        expect(within(screen.getByRole('dialog')).queryByRole('tab', { name: /AI/ })).toBeNull();
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('tab', { name: en.activity }));
+        input(en.activityText, 'Technical information requested');
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.addActivity }));
+        expect(within(screen.getByRole('dialog')).getByText('Technical information requested')).toBeTruthy();
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('tab', { name: en.documents }));
+        input(en.documentName, 'Tender specification');
+        input(en.documentUrl, 'https://example.com/specification.pdf');
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.addDocument }));
+        expect(within(screen.getByRole('dialog')).getByRole('link', { name: 'https://example.com/specification.pdf' })).toBeTruthy();
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    it('records source checks with employee, timestamp and optional count without creating a tender', () => {
+        renderApp();
+        nav(en.sources);
+        expect(screen.getAllByRole('button', { name: en.markChecked })).toHaveLength(9);
+        fireEvent.click(screen.getAllByRole('button', { name: en.markChecked })[0]);
+        input(en.checkedBy, 'employeeB');
+        input(en.found, '3');
+        fireEvent.click(screen.getByRole('button', { name: en.confirmCheck }));
+        const source = getStore().sources[0];
+        expect(source.checkedBy).toBe('employeeB');
+        expect(source.opportunitiesFound).toBe(3);
+        expect(source.lastChecked).toBeTruthy();
+        expect(source.checks).toHaveLength(1);
+        expect(getStore().opportunities).toHaveLength(8);
+        fireEvent.click(screen.getByRole('button', { name: /^Checked today/ }));
+        expect(screen.getAllByRole('button', { name: en.markChecked })).toHaveLength(1);
+    });
+    it('edits competitor information and links it to an opportunity manually', () => {
+        renderApp();
+        nav(en.competitors);
+        fireEvent.click(screen.getAllByRole('button', { name: en.edit })[0]);
+        input(en.publicBidInformation, 'Public notice reference entered by staff');
+        fireEvent.click(screen.getByLabelText('Guangdong metro GFRP rebar procurement'));
+        fireEvent.click(screen.getByRole('button', { name: en.saveChanges }));
+        expect(getStore().competitors[0].publicBidInformation).toBe('Public notice reference entered by staff');
+        expect(getStore().opportunities[0].competitorIds).toEqual(['c1']);
+        expect(getStore().competitors[0].publicTenderResult).toBe('');
+    });
+    it('generates a filtered bilingual manual report and all required sections', () => {
+        renderApp();
+        nav(en.reports);
+        input(en.province, 'hubei');
+        fireEvent.click(screen.getByRole('button', { name: en.bilingualReport }));
+        fireEvent.click(screen.getByRole('button', { name: en.generate }));
+        expect(screen.getByRole('heading', { name: zh.reportsTitle })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Hubei waterworks CFRP rebar procurement' })).toBeTruthy();
+        expect(screen.queryByRole('heading', { name: 'Guangdong metro GFRP rebar procurement' })).toBeNull();
+        expect(screen.getByRole('button', { name: en.excel })).toBeTruthy();
+        expect(document.body.textContent).not.toMatch(/AI-generated|AI Summary/);
+        const print = vi.spyOn(window, 'print').mockImplementation(() => { });
+        fireEvent.click(screen.getByRole('button', { name: en.pdf }));
+        expect(print).toHaveBeenCalledOnce();
+    });
+    it('handles all filters and deadline boundaries without inferring outcomes', () => {
+        const w = createWorkspace();
+        const p = w.opportunities[0];
+        expect(filterOpportunities(w.opportunities, { ...emptyFilter, province: p.province, rebarType: p.rebar.type, status: p.status, ownerId: p.ownerId, sourceId: p.sourceId, priority: p.priority, from: '2026-09-22', to: '2026-09-22' })).toHaveLength(1);
+        expect(isDueSoon({ ...p, deadline: '2026-10-07' }, new Date('2026-09-30T12:00:00'))).toBe(true);
+        expect(isDueSoon({ ...p, deadline: '2026-09-29' }, new Date('2026-09-30T12:00:00'))).toBe(false);
+        expect(isDueSoon({ ...p, status: 'won' }, new Date('2026-09-30T12:00:00'))).toBe(false);
+        expect(reportSections(w.opportunities, w, 'en').find(s => s.key === 'outcomes')?.rows).toEqual([]);
+    });
+    it('navigates every page without visible analysis features or JavaScript console errors', () => {
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => { });
+        renderApp();
+        for (const label of [en.opportunities, en.add, en.tenders, en.competitors, en.sources, en.reports, en.saved]) {
+            nav(label);
+            expect(document.body.textContent).not.toMatch(/AI|GFRP Mesh|Rockbolt|High relevance/);
+        }
+        fireEvent.click(screen.getByRole('button', { name: en.settings }));
+        expect(screen.getByRole('heading', { name: en.settingsTitle })).toBeTruthy();
+        expect(errors).not.toHaveBeenCalled();
+    });
+    it('opens and closes the mobile navigation and reports storage failures without claiming a save', () => {
+        renderApp();
+        fireEvent.click(screen.getByRole('button', { name: en.menu }));
+        expect(document.querySelector('.sidebar.mobile-open')).toBeTruthy();
+        nav(en.add);
+        expect(document.querySelector('.sidebar.mobile-open')).toBeNull();
+        input(en.project, 'Storage failure rebar');
+        input(en.province, 'guangdong');
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
+        fireEvent.click(screen.getByRole('button', { name: en.saveOpportunity }));
+        expect(screen.getByRole('alert').textContent).toBe(en.storageError);
+        expect(screen.getByLabelText(en.project)).toBeTruthy();
+    });
+});

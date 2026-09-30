@@ -1,36 +1,36 @@
-# Oceanpower China Market Intelligence
+# Oceanpower China Rebar Tender Tracking
 
-A China-first bilingual React + TypeScript prototype. All projects, metrics, competitor updates and analysis are mock data. No scraping or external AI calls are performed.
+Phase 1: **China first · Rebar only · Manual first**. This is an in-place update of the existing bilingual Oceanpower prototype, preserving the dashboard title “China market overview” and its visual design.
+
+The app is written in **plain HTML, CSS and JavaScript**. There is no React, JSX or TypeScript. Vite runs the local development server and packages the website; ExcelJS handles Excel downloads. The chart and icons use native HTML/CSS/SVG.
+
+Start with `index.html`, `src/main.js`, and `src/app.js`. The HTML for each screen lives in ordinary JavaScript template strings under `src/views/`. Styles remain in `src/styles.css` and `src/manual.css`, with small native-chart additions in `src/vanilla.css`. See [the code guide](docs/code-guide.md) for an explanation of how these files fit together.
 
 ## Run
 
 ```sh
 npm install
-npm run dev
+npm start
 ```
 
-On PowerShell systems that restrict script execution, use `npm.cmd` instead of `npm`.
+`npm run dev` also starts Vite. On PowerShell systems with script restrictions, use `npm.cmd`.
 
 ```sh
+npm test
 npm run build
 npm run preview
 ```
 
-Run interaction checks with `npm test`. The tests cover locale parity, bilingual and material-alias search, filtering, saved projects, human review, and bilingual report generation.
+## Features
 
-## Prototype features
+- Chinese / English navigation, forms, tables, statuses, notifications and reports.
+- Add/edit rebar tenders; manually assign priority, owner, status and potential products.
+- Search Chinese, English and mixed rebar keywords; filter by province, product type, status, owner, source and priority.
+- Nine identified tender/data sources, with manual check logs, timestamps, staff attribution and optional discovery counts.
+- Manual competitor records, related opportunities, document links, notes and activity timelines.
+- Reports calculated from stored data with date-added and business filters; PDF via browser print and real Excel export.
+- Local browser persistence and JSON backup. Demo records are explicitly labeled; no live-data claim.
 
-- Chinese and English interface using `/locales/zh-CN.json` and `/locales/en.json`.
-- Search both languages, including FRP material aliases, with province, application, relevance and discovery-date filters.
-- Detailed project tabs, product recommendations, information gaps and explicit human review.
-- Locally persisted bookmarks, review acknowledgments, competitor watchlists and language preference.
-- Chinese, English and bilingual reports. PDF via browser print, real `.xlsx` export, and downloadable `.eml` email drafts. Emails are not sent.
-- Recharts dashboards, Tailwind CSS, and a shadcn-style Radix Slot / CVA button primitive.
+No AI, scraping, automated discovery, competitor monitoring or email sending is implemented. Product scope is limited to GFRP, BFRP, CFRP and FRP/composite rebar. Final product suitability requires engineering review.
 
-## Scope and architecture
-
-Only China is enabled. `src/data.ts` separates the market registry, localized project records, product catalog, material aliases and aggregate chart data. Add countries only in subsequent phases, with separate source adapters and localized records. The UI has no global or Asia opportunity feed.
-
-The dashboard shows an illustrative 128-project market snapshot. Eight representative mock projects are available in the detailed register. Filters act on these eight records, not on the illustrative aggregate metrics. Dates are relative to the fixed September 30, 2026 demo snapshot. Product matching and summaries are deterministic mock analysis, not validated engineering advice. Report generation produces a full China briefing from the mock register, independent of table filters.
-
-Future production work: approved source integrations, real AI extraction with citations, server persistence, authentication and permissions, document ingestion, and engineering/commercial approval workflows.
+See [Phase 1 workflow, architecture and source provenance](docs/manual-phase-1.md) for model definitions, storage behavior, verified platform links and future extension points.
